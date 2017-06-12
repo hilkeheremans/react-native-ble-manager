@@ -94,8 +94,10 @@ public class Peripheral extends BluetoothGattCallback {
 		if (gatt != null) {
 			try {
 				gatt.disconnect();
-				gatt.close();
-				gatt = null;
+				// Issue 183108: https://code.google.com/p/android/issues/detail?id=183108
+				// Do not close and set to null yet. Let the disconnect callback do that.
+				// gatt.close();
+				// gatt = null;
 				Log.d(LOG_TAG, "Disconnect");
 				sendConnectionEvent(device, "BleManagerDisconnectPeripheral");
 			} catch (Exception e) {
@@ -105,6 +107,8 @@ public class Peripheral extends BluetoothGattCallback {
 		}else
 			Log.d(LOG_TAG, "GATT is null");
 	}
+
+
 
 	public JSONObject asJSONObject() {
 
@@ -257,15 +261,33 @@ public class Peripheral extends BluetoothGattCallback {
 			
 		} else if (newState == BluetoothGatt.STATE_DISCONNECTED){
 
+			// changed this to not disconnect again and just close.
+			// it will also ignore the 'connected' flag since it is not always correct.
+			// probably a good idea to re-enable that soon.
+
+			// Issue 183108: https://code.google.com/p/android/issues/detail?id=183108
+			try {
+				gatt.close();
+			} catch (Exception e) {
+				Log.d("react-native-ble-mgr", "close ignoring: " + e);
+			}
+
+			this.gatt = null;
+
+			/*
+
 			if (connected) {
 				connected = false;
 
 				if (gatt != null) {
-					gatt.disconnect();
+					// No need to disconnect when we are already disconnected
+					// gatt.disconnect();
 					gatt.close();
 					this.gatt = null;
 				}
 			}
+
+			*/
 
 			sendConnectionEvent(device, "BleManagerDisconnectPeripheral");
 

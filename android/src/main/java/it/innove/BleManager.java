@@ -3,6 +3,7 @@ package it.innove;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothGattCharacteristic;
 import android.bluetooth.BluetoothManager;
 import android.content.BroadcastReceiver;
@@ -32,6 +33,7 @@ class BleManager extends ReactContextBaseJavaModule implements ActivityEventList
 
 
 	private BluetoothAdapter bluetoothAdapter;
+	private BluetoothManager bluetoothManager;
 	private Context context;
 	private ReactApplicationContext reactContext;
 	private Callback enableBluetoothCallback;
@@ -57,8 +59,8 @@ class BleManager extends ReactContextBaseJavaModule implements ActivityEventList
 
 	private BluetoothAdapter getBluetoothAdapter() {
 		if (bluetoothAdapter == null) {
-			BluetoothManager manager = (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
-			bluetoothAdapter = manager.getAdapter();
+			bluetoothManager = (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
+			bluetoothAdapter = bluetoothManager.getAdapter();
 		}
 		return bluetoothAdapter;
 	}
@@ -382,7 +384,48 @@ class BleManager extends ReactContextBaseJavaModule implements ActivityEventList
 	@ReactMethod
 	public void getConnectedPeripherals(ReadableArray serviceUUIDs, Callback callback) {
 		Log.d(LOG_TAG, "Get connected peripherals");
-		WritableArray map = Arguments.createArray();
+		WritableArray peripheralMap = Arguments.createArray();
+
+		// Adjusted to get the actual connected devices instead of just the locally cached ones
+		BluetoothAdapter adapter = getBluetoothAdapter();
+		for (Iterator<BluetoothDevice> iterator = bluetoothManager.getConnectedDevices(BluetoothGatt.GATT).iterator(); iterator.hasNext(); ) {
+			BluetoothDevice device = iterator.next();
+			// test if we have the device in the peripherals. If we don't, add the device.
+			// This can happen whenever we reload in dev mode or when some other inconsistent state occurs.
+			String deviceUUID = device.getAddress();
+			Peripheral p;
+			if (!peripherals.containsKey(deviceUUID)) {
+				p = new Peripheral(device, reactContext);
+				Log.w("react-native-ble-mgr", "Found connected device that was not logged here. Adding now, but there is a risk of double connections. UUID: " + deviceUUID);
+				peripherals.put(deviceUUID, p);
+			} else {
+				p = peripherals.get(deviceUUID);
+			}
+
+			// now let's filter on relevant service UUIDs
+			Boolean hasRelevantServiceUUID = false;
+
+			if (serviceUUIDs != null && serviceUUIDs.size() > 0) {
+				for (int i = 0; i < serviceUUIDs.size(); i++) {
+					hasRelevantServiceUUID = p.hasService(UUIDHelper.uuidFromString(serviceUUIDs.getString(i)));
+				}
+			} else {
+				hasRelevantServiceUUID = true;
+			}
+
+			if (hasRelevantServiceUUID) {
+				try {
+					Bundle bundle = BundleJSONConverter.convertToBundle(p.asJSONObject());
+					WritableMap jsonBundle = Arguments.fromBundle(bundle);
+					peripheralMap.pushMap(jsonBundle);
+				} catch (JSONException ignored) {
+					callback.invoke("Peripheral json conversion error", null);
+				}
+			}
+
+		}
+
+		/*
 		for (Map.Entry<String, Peripheral> entry : peripherals.entrySet()) {
 			Peripheral peripheral = entry.getValue();
 			Boolean accept = false;
@@ -405,7 +448,10 @@ class BleManager extends ReactContextBaseJavaModule implements ActivityEventList
 				}
 			}
 		}
-		callback.invoke(null, map);
+		*/
+
+
+		callback.invoke(null, peripheralMap);
 	}
 
 	@ReactMethod
